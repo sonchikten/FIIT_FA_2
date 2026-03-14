@@ -24,13 +24,13 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
 
     private void SetRed(RbNode<TKey, TValue>? node)
     {
-        if (node == null) return;  // ← защита от null
+        if (node == null) return; 
         node.Color = RbColor.Red;
     }
     
     private void SetBlack(RbNode<TKey, TValue>? node)
     {
-        if (node == null) return;  // ← защита от null
+        if (node == null) return;
         node.Color = RbColor.Black;
     }
     
@@ -117,15 +117,10 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
 
         _deletedColor = node.Color;
         _childCount = (node.Left != null ? 1 : 0) + (node.Right != null ? 1 : 0);
-
-        bool result = base.Remove(key);
-
-        _deletedColor = null;
-
-        return result;
+        
+        return base.Remove(key);
     }
 
-    
     protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child)
     {
         if (_deletedColor == RbColor.Red)
@@ -133,33 +128,16 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
             return;
         }
 
-        switch (_childCount)
+        if (_childCount == 1 && child != null && IsRed(child)) // удаление черной ноды с 1 ребенком (по сути может быть только красный ребенок)
         {
-            case 2:
-                if (child != null && IsBlack(child))
-                {
-                    BalanceAfterRemove(child);  // есть node
-                }
-                break;
+            SetBlack(child);
+            return; 
+        }
 
-            case 1:
-                if (child != null && IsRed(child))
-                {
-                    SetBlack(child);
-                }
-                else if (child != null)
-                {
-                    BalanceAfterRemove(child); //такого как будто не существует, ну на всякий
-                }
-                break;
-
-            case 0:
-                if (parent != null) //черная нода - лист
-                {
-                    bool wasLeft = parent.Left == null;
-                    BalanceAfterRemove(null, parent, wasLeft);  // нет node, передаем parent и сторону
-                }
-                break;
+        if (_childCount == 0 && parent != null)
+        {
+            bool wasLeft = parent.Left == null;
+            BalanceAfterRemove(null, parent, wasLeft);
         }
 
         if (Root != null) SetBlack((RbNode<TKey, TValue>)Root);
@@ -199,7 +177,7 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
                 continue;
             }
 
-            if (IsRed(sibling)) //брат красный
+            if (IsRed(sibling)) //брат красный и попадаем вероятно куда-то в кейсы с черным братом
             {
                 SetBlack(sibling);
                 SetRed(parent);
@@ -252,7 +230,7 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
 
             if (wasLeft == true)
             {
-                if (IsBlack(rightNephew) && IsRed(leftNephew)) //дальний племянник - черный, ближний - красный
+                if (IsBlack(rightNephew) && IsRed(leftNephew)) //дальний правый племянник черный, ближний - красный, отсюда вероятно попадем в следующий кейс
                 {
                     SetBlack(leftNephew);
                     SetRed(sibling);
@@ -261,7 +239,7 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
                     rightNephew = sibling?.Right as RbNode<TKey, TValue>;
                 }
 
-                if (IsRed(rightNephew)) //дальний племянник красный
+                if (IsRed(rightNephew)) //правый племянник красный, левый любой (оба красные, левый черный, правый красный)
                 {
                     SetColor(sibling, GetColor(parent));
                     SetBlack(parent);
