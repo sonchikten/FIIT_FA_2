@@ -69,7 +69,7 @@ public class SplayTree<TKey, TValue> : BinarySearchTree<TKey, TValue>
             return true;
         }
 
-        value = default;
+        value = default; //0, null, false
         return false;
     }
 

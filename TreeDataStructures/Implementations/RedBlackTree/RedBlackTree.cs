@@ -8,31 +8,13 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
     protected override RbNode<TKey, TValue> CreateNode(TKey key, TValue value)
         => new(key, value);
 
-    private RbColor? _deletedColor;
-    private int _childCount;
-    
     private bool IsRed(RbNode<TKey, TValue>? node) => node != null && node.Color == RbColor.Red;
     private bool IsBlack(RbNode<TKey, TValue>? node) => node == null || node.Color == RbColor.Black;
+    private RbColor GetColor(RbNode<TKey, TValue>? node) => node?.Color ?? RbColor.Black;
+    private void SetColor(RbNode<TKey, TValue>? node, RbColor color) { if (node != null) node.Color = color; }
+    private void SetRed(RbNode<TKey, TValue>? node) { if (node != null) node.Color = RbColor.Red; }
+    private void SetBlack(RbNode<TKey, TValue>? node) { if (node != null) node.Color = RbColor.Black; }
 
-    private RbColor GetColor(RbNode<TKey, TValue>? node) => node?.Color ?? RbColor.Black; //тк все null-листья считаются черными
-
-    private void SetColor(RbNode<TKey, TValue>? node, RbColor color)
-    {
-        if (node == null) return;
-        node.Color = color;
-    }
-
-    private void SetRed(RbNode<TKey, TValue>? node)
-    {
-        if (node == null) return; 
-        node.Color = RbColor.Red;
-    }
-    
-    private void SetBlack(RbNode<TKey, TValue>? node)
-    {
-        if (node == null) return;
-        node.Color = RbColor.Black;
-    }
     
     protected override void OnNodeAdded(RbNode<TKey, TValue> newNode)
     {
@@ -51,27 +33,24 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
             {
                 var uncle = grandParent.Right as RbNode<TKey, TValue>;
                 
-                if (IsRed(uncle)) //дядя красный, родитель красный
+                if (IsRed(uncle))
                 {
                     SetBlack(parent);
                     SetBlack(uncle);
                     SetRed(grandParent);
-                    
                     node = grandParent;
                     continue;
                 }
                 
-                if (parent.Left == node) //дяди нет (null - черный), родитель красный
+                if (parent.Left == node)
                 {
                     RotateRight(grandParent);
-                    
                     SetBlack(parent);
                     SetRed(grandParent);
                 }
-                else //дяди нет (null - черный), правый ребенок красного родителя
+                else
                 {
                     RotateBigRight(grandParent);
-                    
                     SetBlack(node);
                     SetRed(grandParent);
                 }   
@@ -102,174 +81,219 @@ public class RedBlackTree<TKey, TValue> : BinarySearchTreeBase<TKey, TValue, RbN
                     SetBlack(node);
                     SetRed(grandParent);
                 }
-                
                 break;
             }
         }
         
-        if (Root != null) SetBlack((RbNode<TKey, TValue>)Root);
+        if (Root != null) 
+        {
+            SetBlack((RbNode<TKey, TValue>)Root);
+        }
     }
-
+    
     public override bool Remove(TKey key)
     {
         var node = FindNode(key) as RbNode<TKey, TValue>;
-        if (node == null) return false;
+        if (node == null)
+        {
+            return false;
+        }
 
-        _deletedColor = node.Color;
-        _childCount = (node.Left != null ? 1 : 0) + (node.Right != null ? 1 : 0);
+        var deletedColor = node.Color;
         
-        return base.Remove(key);
+        bool result = base.Remove(key);
+        
+        return result;
     }
 
-    protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child)
+    protected override void OnNodeRemoved(RbNode<TKey, TValue>? parent, RbNode<TKey, TValue>? child) {}
+    
+    protected override void RemoveNode(RbNode<TKey, TValue> node)
     {
-        if (_deletedColor == RbColor.Red)
+        RbColor originalColor = node.Color;
+        RbNode<TKey, TValue>? replacement = null;
+        RbNode<TKey, TValue>? replacementParent = null;
+        
+        // нет детей или 1 ребенок (1 ребенок может быть только у черной ноды)
+        if (node.Left == null)
         {
+            replacement = node.Right;
+            replacementParent = node.Parent;
+            Transplant(node, node.Right);
+        }
+        else if (node.Right == null)
+        {
+            replacement = node.Left;
+            replacementParent = node.Parent;
+            Transplant(node, node.Left);
+        }
+        else
+        {
+            // 2 ребенка - ищем замену
+            RbNode<TKey, TValue> successor = FindMin(node.Right)!;
+            originalColor = successor.Color;
+            replacement = successor.Right;
+            
+            if (successor.Parent == node)
+            {
+                if (replacement != null)
+                {
+                    replacement.Parent = successor;
+                }
+                replacementParent = successor;
+            }
+            else
+            {
+                replacementParent = successor.Parent;
+                Transplant(successor, successor.Right);
+                successor.Right = node.Right;
+                if (successor.Right != null)
+                {
+                    successor.Right.Parent = successor;
+                }
+            }
+            
+            Transplant(node, successor);
+            successor.Left = node.Left;
+            if (successor.Left != null)
+            {
+                successor.Left.Parent = successor;
+            }
+            successor.Color = node.Color;
+        }
+        
+        Count--;
+        
+        if (originalColor == RbColor.Black)
+        {
+            BalanceAfterRemove(replacement, replacementParent);
+        }
+        
+        if (Root != null)
+        {
+            SetBlack((RbNode<TKey, TValue>)Root);
+        }
+    }
+    
+    /// <summary>
+    /// балансировка после удаления черной вершины
+    /// node - вершина, которая встала на место удаленной
+    /// parent - родитель node (нужен, если node == null)
+    /// </summary>
+    private void BalanceAfterRemove(RbNode<TKey, TValue>? node, RbNode<TKey, TValue>? parent)
+    {
+        if (IsRed(node)) //для случая с черной нодой с 1 ребенком
+        {
+            SetBlack(node);
             return;
         }
-
-        if (_childCount == 1 && child != null && IsRed(child)) // удаление черной ноды с 1 ребенком (по сути может быть только красный ребенок)
+        
+        // если node == null, начинаем балансировку с родителя
+        // иначе node черный, продолжаем
+        
+        while (node != Root && IsBlack(node))
         {
-            SetBlack(child);
-            return; 
-        }
-
-        if (_childCount == 0 && parent != null)
-        {
-            bool wasLeft = parent.Left == null;
-            BalanceAfterRemove(null, parent, wasLeft);
-        }
-
-        if (Root != null) SetBlack((RbNode<TKey, TValue>)Root);
-    }
-
-    private void BalanceAfterRemove(RbNode<TKey, TValue>? node, RbNode<TKey, TValue>? parent = null, bool? wasLeft = null)
-    {
-        if (node != null)
-        {
-            parent = node.Parent as RbNode<TKey, TValue>;
-            if (parent == null) return;
-            wasLeft = parent.Left == node;
-        }
-        else if (parent == null || wasLeft == null) return;
-
-        while (true)
-        {
-            var sibling = wasLeft == true
-                ? parent.Right as RbNode<TKey, TValue>
-                : parent.Left as RbNode<TKey, TValue>;
-
-            if (sibling == null) //поднимаемся вверх, потому что нет брата, нечем балансировать
+            // определяем, является ли node левым или правым ребенком
+            if (node == parent?.Left)
             {
-                if (node != null)
-                {
-                    node = parent;
-                    parent = node.Parent as RbNode<TKey, TValue>;
-                    if (parent == null) break;
-                    wasLeft = parent.Left == node;
-                }
-                else
-                {
-                    wasLeft = parent.Parent?.Left == parent;
-                    parent = parent.Parent as RbNode<TKey, TValue>;
-                    if (parent == null) break;
-                }
-                continue;
-            }
-
-            if (IsRed(sibling)) //брат красный и попадаем вероятно куда-то в кейсы с черным братом
-            {
-                SetBlack(sibling);
-                SetRed(parent);
-
-                if (wasLeft == true)
-                {
-                    RotateLeft(parent);
-                }
-                else
-                {
-                    RotateRight(parent);
-                }
-
-                sibling = wasLeft == true
-                    ? parent.Right as RbNode<TKey, TValue>
-                    : parent.Left as RbNode<TKey, TValue>;
+                var sibling = parent?.Right as RbNode<TKey, TValue>;
                 
-                continue;
-            }
-
-            var leftNephew = sibling?.Left as RbNode<TKey, TValue>;
-            var rightNephew = sibling?.Right as RbNode<TKey, TValue>;
-
-            if (IsBlack(leftNephew) && IsBlack(rightNephew)) //оба племянника - черные
-            {
-                SetRed(sibling);
-
-                if (IsRed(parent))
+                // брат красный
+                if (IsRed(sibling))
                 {
-                    SetBlack(parent);  // родитель был красный - красим в черный
-                    return;
+                    SetBlack(sibling);
+                    SetRed(parent);
+                    RotateLeft(parent!);
+                    sibling = parent?.Right as RbNode<TKey, TValue>;
                 }
-
-                // родитель черный - поднимаемся выше
-                if (node != null)
+                
+                // оба ребенка брата черные
+                if (IsBlack(sibling?.Left) && IsBlack(sibling?.Right))
                 {
-                    node = parent;
-                    parent = node.Parent as RbNode<TKey, TValue>;
-                    if (parent == null) break;
-                    wasLeft = parent.Left == node;
+                    SetRed(sibling); 
+                    
+                    if (IsRed(parent))
+                    {
+                        SetBlack(parent);
+                        return;
+                    }
+                    else
+                    {
+                        node = parent;
+                        parent = node?.Parent as RbNode<TKey, TValue>;
+                    }
                 }
                 else
                 {
-                    wasLeft = parent.Parent?.Left == parent;
-                    parent = parent.Parent as RbNode<TKey, TValue>;
-                    if (parent == null) break;
-                }
-                continue;
-            }
-
-            if (wasLeft == true)
-            {
-                if (IsBlack(rightNephew) && IsRed(leftNephew)) //дальний правый племянник черный, ближний - красный, отсюда вероятно попадем в следующий кейс
-                {
-                    SetBlack(leftNephew);
-                    SetRed(sibling);
-                    RotateRight(sibling!);
-                    sibling = parent.Right as RbNode<TKey, TValue>;
-                    rightNephew = sibling?.Right as RbNode<TKey, TValue>;
-                }
-
-                if (IsRed(rightNephew)) //правый племянник красный, левый любой (оба красные, левый черный, правый красный)
-                {
+                    // левый ребенок брата красный, правый - черный: нужно привести к следующему случаю с правым красным реебенком
+                    if (IsBlack(sibling?.Right))
+                    {
+                        SetBlack(sibling?.Left);
+                        SetRed(sibling);
+                        RotateRight(sibling!);
+                        sibling = parent?.Right as RbNode<TKey, TValue>;
+                    }
+                    
+                    // правый ребенок брата красный
                     SetColor(sibling, GetColor(parent));
                     SetBlack(parent);
-                    SetBlack(rightNephew);
-                    RotateLeft(parent);
-                    return;
+                    SetBlack(sibling?.Right);
+                    RotateLeft(parent!);
+                    node = Root as RbNode<TKey, TValue>;
+                    break;
                 }
             }
             else
             {
-                if (IsBlack(leftNephew) && IsRed(rightNephew))
+                var sibling = parent?.Left as RbNode<TKey, TValue>;
+                
+                if (IsRed(sibling))
                 {
-                    SetBlack(rightNephew);
-                    SetRed(sibling);
-                    RotateLeft(sibling!);
-                    sibling = parent.Left as RbNode<TKey, TValue>;
-                    leftNephew = sibling?.Left as RbNode<TKey, TValue>;
+                    SetBlack(sibling);
+                    SetRed(parent);
+                    RotateRight(parent!);
+                    sibling = parent?.Left as RbNode<TKey, TValue>;
                 }
                 
-                if (IsRed(leftNephew))
+                if (IsBlack(sibling?.Right) && IsBlack(sibling?.Left))
                 {
+                    SetRed(sibling);
+
+                    if (IsRed(parent))
+                    {
+                        SetBlack(parent);
+                        return;
+                    }
+                    else
+                    {
+                        node = parent;
+                        parent = node?.Parent as RbNode<TKey, TValue>;
+                    }
+                }
+                else
+                {
+                    if (IsBlack(sibling?.Left))
+                    {
+                        SetBlack(sibling?.Right);
+                        SetRed(sibling);
+                        RotateLeft(sibling!);
+                        sibling = parent?.Left as RbNode<TKey, TValue>;
+                    }
+                    
                     SetColor(sibling, GetColor(parent));
                     SetBlack(parent);
-                    SetBlack(leftNephew);
-                    RotateRight(parent);
-                    return;
+                    SetBlack(sibling?.Left);
+                    RotateRight(parent!);
+                    node = Root as RbNode<TKey, TValue>;
+                    break;
                 }
             }
         }
-
-        if (node != null) SetBlack(node);
+        
+        if (node != null) //если мы вышли потому что node == root, то надо гарантировать, что корень черный 
+        {
+            SetBlack(node);
+        }
     }
+
 }
